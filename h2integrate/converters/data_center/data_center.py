@@ -155,7 +155,7 @@ class DataCenterPerformanceModel(PerformanceModelBaseClass):
         # Determine the amount of electricity used as the min of total demand and available input
         electricity_used = np.minimum.reduce([total_electricity_demand, inputs["electricity_in"]])
 
-        water_demand = electrical_compute_load_demand * self.config.water_use_gal_per_mwh
+        water_demand = compute_load_demand * self.config.water_use_gal_per_mwh
 
         # available feedstock, saturated at maximum system feedstock consumption
         water_available = np.where(

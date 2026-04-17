@@ -16,7 +16,8 @@ def data_center_performance_params():
         "system_capacity_mw": 100,
         "compute_electrical_efficiency": 0.92,
         "cooling_load_ratio": 0.2,
-        "water_use_per_mwh": 1200,  # galUS/MWh
+        "water_use_gal_per_mwh": 1200,
+        "demand_profile": 100.,
     }
     return tech_params
 
@@ -72,6 +73,7 @@ def test_data_center_performance(plant_config, data_center_performance_params, s
             * data_center_performance_params["cooling_load_ratio"]
         )
     )
+    water_in = np.full(8760, 1e6)
 
     prob = om.Problem()
     perf_comp = DataCenterPerformanceModel(
@@ -85,11 +87,12 @@ def test_data_center_performance(plant_config, data_center_performance_params, s
     # Set the compute load demand input
     prob.set_val("compute_load_demand", compute_load_demand)
     prob.set_val("electricity_in", electricity_in)
+    prob.set_val("water_in", water_in)
     prob.run_model()
 
     with subtests.test("Data Center Unmet Electricity Demand Output"):
         # Check that there is zero unmet electricity demand since the input is sufficient
-        unmet_electricity_demand = prob.get_val("unmet_electricity_demand", units="MW")
+        unmet_electricity_demand = prob.get_val("unmet_electricity_demand_out", units="MW")
         expected_output = [0.0] * plant_config["plant"]["simulation"]["n_timesteps"]
         assert pytest.approx(unmet_electricity_demand, rel=1e-6) == expected_output
 
@@ -103,8 +106,8 @@ def test_data_center_performance(plant_config, data_center_performance_params, s
         # Check water usage
         water_consumed = prob.get_val("water_consumed", units="galUS/h")
         expected_output = (
-            compute_load_demand
-            / data_center_performance_params["compute_electrical_efficiency"]
-            * data_center_performance_params["water_use_per_mwh"]
+            compute_load_demand * data_center_performance_params["water_use_gal_per_mwh"]
         )
+        print(water_consumed)
+        print(expected_output)
         assert pytest.approx(water_consumed, rel=1e-6) == expected_output
