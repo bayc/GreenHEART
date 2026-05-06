@@ -95,6 +95,11 @@ class PySAMBatteryPerformanceModel(StoragePerformanceBase):
             Sets the battery control mode (power or current).
     """
 
+    _time_step_bounds = (
+        3600,
+        3600,
+    )  # (min, max) time step lengths (in seconds) compatible with this model
+
     def initialize(self):
         super().initialize()
         self.commodity = "electricity"
@@ -199,7 +204,7 @@ class PySAMBatteryPerformanceModel(StoragePerformanceBase):
         Args:
             storage_dispatch_commands : Sequence[float]
                 Commanded power per timestep (kW). Negative = charge, positive = discharge.
-                Length should be = ``config.n_control_window``.
+                Length should be = ``config.n_control_window_hours``.
             control_variable : str
                 PySAM control input to set each step ("input_power" or "input_current").
             sim_start_index : int, optional

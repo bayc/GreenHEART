@@ -1,6 +1,26 @@
 # Changelog
 
 ## Unreleased
+- Change commodity in DRI and EAF model from pig iron to sponge iron based on likely carbon content [PR 670](https://github.com/NatLabRockies/H2Integrate/pull/670)
+- Bugfix for round-trip efficiency handling when calling `check_inputs` around `StoragePerformanceModel` [PR 684](https://github.com/NatLabRockies/H2Integrate/pull/684)
+- Bugfix. Include nuclear in electricity producing tech list and improve error message for zero-length electricity producing techs in model when electricity is specified as the commodity. [PR 685](https://github.com/NatLabRockies/H2Integrate/pull/685)
+- Renamed `{commodity}_demand` inputs to `{commodity}_set_point` on all converter performance components to align with storage baseclass naming and distinguish converter operating targets from demand components. [PR 691](https://github.com/NatLabRockies/H2Integrate/pull/691)
+- Add electric arc furnace performance and cost models based on the Carnegie Mellon University DecarbSTEEL v5 excel model [PR 686](https://github.com/NatLabRockies/H2Integrate/pull/686)
+  - Adds scrap-only performance model
+  - Adds DRI + scrap performance model
+  - Adds EAF cost model applicable to both performance models
+- Added electricity and water consumption profiles as outputs to the `ECOElectrolyzerPerformanceModel` [PR 690](https://github.com/NatLabRockies/H2Integrate/pull/690)
+- Add `PeakLoadManagementHeuristicOpenLoopStorageController` as a storage control strategy. [PR 641](https://github.com/NatLabRockies/H2Integrate/pull/641)
+- Minor cleanup to `pose_optimization` [PR 695](https://github.com/NatLabRockies/H2Integrate/pull/695)
+- Add per-year pricing support for Grid and Feedstock cost models, allowing price arrays of length `plant_life` in addition to scalar and per-timestep arrays. [PR 700](https://github.com/NatLabRockies/H2Integrate/pull/700)
+- Added ability to have a custom/user-specified resource model [PR 698](https://github.com/NatLabRockies/H2Integrate/pull/698)
+- Add `{commodity}_set_point` as an input to hydrogen fuel cell model [PR 709](https://github.com/NatLabRockies/H2Integrate/pull/709)
+- Rename `n_control_window` to `n_control_window_hours` for unit clarity [PR 712](https://github.com/NatLabRockies/H2Integrate/pull/712)
+- Update N2 diagram for demand openloop control from static and outdated to dynamic and interactive [PR 714](https://github.com/NatLabRockies/H2Integrate/pull/714)
+- Added basic check of 4-length connections in `technology_interconnections` [PR 720](https://github.com/NatLabRockies/H2Integrate/pull/720)
+
+## 0.8 [April 15, 2026]
+- Updated README and docs intro page with expanded H2I description, reorganized sections, and streamlined installation instructions [PR 677](https://github.com/NatLabRockies/H2Integrate/pull/677)
 - Update energy conversion ratio in H2 SMR model [PR 606](https://github.com/NatLabRockies/H2Integrate/pull/606)
 - Update iron models and examples [PR 601](https://github.com/NatLabRockies/H2Integrate/pull/601)
   - Remove outdated iron files
@@ -31,10 +51,12 @@
 - Removed a few usages of `shape_by_conn` due to issues with OpenMDAO v3.43.0 release on some computers [PR 632](https://github.com/NatLabRockies/H2Integrate/pull/632)
 - Made generating an XDSM diagram from connections in a model optional and added documentation on model visualization. [PR 629](https://github.com/NatLabRockies/H2Integrate/pull/629)
 - Added a storage performance baseclass model `StoragePerformanceBase` and updated the other storage performance models to inherit it [PR 624](https://github.com/NatLabRockies/H2Integrate/pull/624)
+- Added an automated script to crawl through the codebase and generate a visualization of the class hierarchy in H2Integrate. [PR 643](https://github.com/NatLabRockies/H2Integrate/pull/643)
 - Modified the calc tilt angle function for pysam solar to support latitudes in the southern hemisphere [PR 646](https://github.com/NatLabRockies/H2Integrate/pull/646)
 - Added oxygen production metrics and as outputs to `ECOElectrolyzerPerformanceModel` [PR 642](https://github.com/NatLabRockies/H2Integrate/pull/642)
 - Bugfix to allow for one resource to be connected to multiple technologies [PR 655](https://github.com/NatLabRockies/H2Integrate/pull/655)
 - Removed the last of the logic that was based on technology names rather than model classes [PR 654](https://github.com/NatLabRockies/H2Integrate/pull/654)
+- Add input checking for extraneous or mis-categorized input parameters for technologies that have a defined control strategy or dispatch rule set [PR 647](https://github.com/NatLabRockies/H2Integrate/pull/647)
 - Bumps the `coin-or-cbc` dependency to at least 2.10.12 to enable easy Windows compatibility. [PR 590](https://github.com/NatLabRockies/H2Integrate/pull/590)
 - Uses the optional installation parameter `extras` to combine all analysis extras, and remove them
   from the `develop` options. [PR 590](https://github.com/NatLabRockies/H2Integrate/pull/590)
@@ -44,7 +66,14 @@
   data between functions in a module. [PR 590](https://github.com/NatLabRockies/H2Integrate/pull/590)
 - Adds `H2IntegrateModel.state` as an `IntEnum` to handle setup and run status checks.
   [PR 590](https://github.com/NatLabRockies/H2Integrate/pull/590)
+- Added standardized outputs to feedstock model [PR 523](https://github.com/NatLabRockies/H2Integrate/pull/523)
+- Reclassified open-loop converter control strategies as demand components and updated output naming convention to align with output naming convention in storage performance models [PR 631](https://github.com/NatLabRockies/H2Integrate/pull/631).
+  - The `FlexibleDemandOpenLoopConverterController` has been renamed to `FlexibleDemandComponent`
+  - The `DemandOpenLoopConverterController` has been renamed to `GenericDemandComponent`
 - Modified CI setup so Windows is temporarily disabled and also so unit, regression, and integration tests are run in separate jobs to speed up testing and provide more information on test failures. [PR 668](https://github.com/NatLabRockies/H2Integrate/pull/668)
+- Added infrastructure for running models with non-hourly time steps via a class attribute `_time_step_bounds` and sets new time step bounds of 5-minutes to 1-hour for the grid components. [PR 653](https://github.com/NatLabRockies/H2Integrate/pull/653) and [PR 671](https://github.com/NatLabRockies/H2Integrate/pull/671)
+- Remove demand-related outputs from storage performance models and replace usage with demand components [PR 666](https://github.com/NatLabRockies/H2Integrate/pull/666)
+- Added a compressed gas hydrogen storage model [PR 680](https://github.com/NatLabRockies/H2Integrate/pull/680)
 
 ## 0.7.2 [April 9, 2026]
 
