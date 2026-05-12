@@ -54,6 +54,11 @@ class DataCenterPerformanceModel(PerformanceModelBaseClass):
         unmet_electricity_demand (float array): Unmet electricity demand in MW.
         water_consumed (float array): Water consumed in galUS/h.
     """
+    _time_step_bounds = (
+        3600,
+        3600,
+    )  # (min, max) time step lengths (in seconds) compatible with this model
+
     def initialize(self):
         super().initialize()
         self.commodity = "compute_load"
@@ -214,6 +219,11 @@ class DataCenterCostModel(CostModelBaseClass):
     Args:
         CostModelBaseClass (_type_): _description_
     """
+    _time_step_bounds = (
+        3600,
+        3600,
+    )  # (min, max) time step lengths (in seconds) compatible with this model
+
     def initialize(self):
         super().initialize()
         self.commodity = "compute_load"

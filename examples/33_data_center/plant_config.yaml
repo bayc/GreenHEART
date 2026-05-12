@@ -18,7 +18,7 @@ sites:
 # and not connected to additional technologies.
 # hence the empty array.
 technology_interconnections:
-  - [data_center, grid_buy, [unmet_electricity_demand_out, electricity_demand]]
+  - [data_center, grid_buy, [unmet_electricity_demand_out, electricity_set_point]]
   - [water_feedstock, data_center, water, pipe]
   # - [solar, battery, electricity, cable]
   #                                                 # connect solar to battery
