@@ -158,6 +158,8 @@ from h2integrate.converters.hydrogen.geologic.templeton_serpentinization import 
 from h2integrate.converters.data_center.data_center import (
     DataCenterCostModel,
     DataCenterPerformanceModel,
+    DataCenterPUEWUECostModel,
+    DataCenterPUEWUEPerformanceModel,
 )
 from h2integrate.control.control_rules.storage.pyomo_storage_rule_baseclass import (
     PyomoRuleStorageBaseclass,
@@ -280,6 +282,8 @@ supported_models = {
     "NaturalGasCostModel": NaturalGasCostModel,
     "DataCenterPerformanceModel": DataCenterPerformanceModel,
     "DataCenterCostModel": DataCenterCostModel,
+    "DataCenterPUEWUEPerformanceModel": DataCenterPUEWUEPerformanceModel,
+    "DataCenterPUEWUECostModel": DataCenterPUEWUECostModel,
     # Transport
     "cable": CablePerformanceModel,
     "pipe": PipePerformanceModel,
