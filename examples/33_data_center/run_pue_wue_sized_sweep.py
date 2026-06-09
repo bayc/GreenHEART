@@ -312,6 +312,13 @@ fig_c.suptitle("Efficient vs Inefficient Results (grouped by size class)", fonts
 
 bound_hatches = {"efficient": "", "inefficient": "//"}
 
+bar_x_labels = [
+    "Case 1:\nLarge -\nAir +\nWater Cooled",
+    "Case 2:\nLarge -\nWater Cooled",
+    "Case 3:\nMedium -\nAir +\nWater Cooled",
+    "Case 4:\nMedium -\nWater Cooled",
+]
+
 for row_i, wl_name in enumerate(WORKLOAD_NAMES):
     for col_i, (col, ylabel, _) in enumerate(METRICS):
         ax = axes_c[row_i, col_i]
@@ -345,8 +352,9 @@ for row_i, wl_name in enumerate(WORKLOAD_NAMES):
                 )
 
         ax.set_xticks(bar_x)
-        ax.set_xticklabels([str(i + 1) for i in bar_x], fontsize=8)
-        ax.set_xlabel("Case index")
+        ax.set_xticklabels(bar_x_labels, fontsize=8)
+        # ax.set_xticklabels([str(i + 1) for i in bar_x], fontsize=8)
+        ax.set_xlabel("Case")
         ax.set_ylabel(ylabel)
         ax.set_title(f"{wl_name.capitalize()} — {ylabel}", fontsize=8)
         ax.grid(True, axis="y", alpha=0.4)
