@@ -49,7 +49,7 @@ from pathlib import Path
 from IPython.display import HTML, display
 
 # Change to an example directory
-os.chdir("../../examples/14_wind_hydrogen_dispatch/")
+os.chdir("../../../examples/14_wind_hydrogen_dispatch/")
 
 # Build and set up the model
 h2i_model = H2IntegrateModel("inputs/h2i_wind_to_h2_storage.yaml")
@@ -108,4 +108,4 @@ An example output for the first week of a one-year simulation is shown below. Or
 For an example of how to use the `PeakLoadManagementHeuristicOpenLoopStorageController`, see:
 - `examples/33_peak_load_management/`
 
-For API details, see the [`PeakLoadManagementHeuristicOpenLoopStorageController` API documentation](../_autosummary/h2integrate.control.control_strategies.storage.plm_openloop_storage_controller).
+For API details, see the [`PeakLoadManagementHeuristicOpenLoopStorageController` API documentation](../../_autosummary/h2integrate.control.control_strategies.storage.plm_openloop_storage_controller).
