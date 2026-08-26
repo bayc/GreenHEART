@@ -4,8 +4,9 @@ import openmdao.api as om
 from pytest import fixture
 
 from h2integrate.converters.data_center.data_center import (
-    DataCenterCostModel,
+    DataCenterPUEWUECostModel,
     DataCenterPerformanceModel,
+    DataCenterPUEWUEPerformanceModel,
 )
 
 
@@ -17,7 +18,7 @@ def data_center_performance_params():
         "compute_electrical_efficiency": 0.92,
         "cooling_load_ratio": 0.2,
         "water_use_gal_per_mwh": 1200,
-        "demand_profile": 100.,
+        "demand_profile": 100.0,
     }
     return tech_params
 
@@ -26,8 +27,8 @@ def data_center_performance_params():
 def data_center_cost_params():
     """Data Center cost parameters."""
     cost_params = {
-        "capex_per_mw": 10E6,  # $/MW
-        "fixed_opex_per_mw_per_year": 5.6E6,  # $/MW/year
+        "capex_per_mw": 10e6,  # $/MW
+        "fixed_opex_per_mw_per_year": 5.6e6,  # $/MW/year
         "variable_opex_per_mwh": 50,  # $/MWh
         "system_capacity_mw": 100,  # MW
         "cost_year": 2023,
@@ -64,14 +65,14 @@ def test_data_center_performance(plant_config, data_center_performance_params, s
     compute_load_demand = np.full(8760, system_capacity)  # MW
     # MW, accounting for 92% efficiency (100 MW / 0.92) and 20% additional cooling load
     electrical_compute_load_demand = (
-            compute_load_demand / data_center_performance_params["compute_electrical_efficiency"]
-        )
+        compute_load_demand / data_center_performance_params["compute_electrical_efficiency"]
+    )
     electricity_in = np.full(
-        8760, (
+        8760,
+        (
             electrical_compute_load_demand
-            + electrical_compute_load_demand
-            * data_center_performance_params["cooling_load_ratio"]
-        )
+            + electrical_compute_load_demand * data_center_performance_params["cooling_load_ratio"]
+        ),
     )
     water_in = np.full(8760, 1e6)
 
@@ -111,3 +112,152 @@ def test_data_center_performance(plant_config, data_center_performance_params, s
         print(water_consumed)
         print(expected_output)
         assert pytest.approx(water_consumed, rel=1e-6) == expected_output
+
+
+# ---------------------------------------------------------------------------
+# PUE/WUE data-center model: waste-heat outputs and cost credit
+# ---------------------------------------------------------------------------
+
+
+def _pue_wue_plant_config(n_timesteps=24):
+    return {
+        "plant": {
+            "plant_life": 30,
+            "simulation": {"n_timesteps": n_timesteps, "dt": 3600},
+        },
+    }
+
+
+def _pue_wue_perf_config(**overrides):
+    params = {
+        "compute_it_workload_profile": [1.0] * 24,
+        "system_capacity_mw": 1.0,
+        "pue": 1.4,
+        "wue": 1.0,
+        "cooling_configuration": 5,  # midsize water-cooled chiller
+    }
+    params.update(overrides)
+    return {"model_inputs": {"performance_parameters": params}}
+
+
+def _pue_wue_cost_config(**overrides):
+    params = {
+        "cost_year": 2022,
+        "system_capacity_mw": 1.0,
+        "capex_per_mw": 10_000_000.0,
+        "fixed_opex_per_mw_per_year": 100_000.0,
+        "electricity_rate": 0.05,
+        "water_rate": 0.005,
+    }
+    params.update(overrides)
+    return {"model_inputs": {"cost_parameters": params}}
+
+
+def _build_pue_wue_perf(plant_config, tech_config):
+    prob = om.Problem()
+    prob.model.add_subsystem(
+        "dc",
+        DataCenterPUEWUEPerformanceModel(plant_config=plant_config, tech_config=tech_config),
+        promotes=["*"],
+    )
+    prob.setup()
+    prob.set_val("electricity_in", np.full(24, 10.0), units="MW")
+    prob.set_val("water_in", np.full(24, 100.0), units="galUS/h")
+    return prob
+
+
+@pytest.mark.unit
+class TestDataCenterPUEWUEWasteHeat:
+    def test_case5_defaults(self):
+        """Case 5 (midsize water-cooled): fraction 0.20, T_supply=40, T_return=30."""
+        plant_config = _pue_wue_plant_config()
+        prob = _build_pue_wue_perf(plant_config, _pue_wue_perf_config())
+        prob.run_model()
+
+        facility_power = prob.get_val("total_facility_power", units="MW")
+        expected_waste = facility_power * 0.20
+        assert prob.get_val("waste_heat_out", units="MW") == pytest.approx(expected_waste)
+        assert prob.get_val("waste_heat_supply_temp_C", units="degC")[0] == pytest.approx(40.0)
+        assert prob.get_val("waste_heat_return_temp_C", units="degC")[0] == pytest.approx(30.0)
+        total = float(prob.get_val("total_waste_heat_recovered", units="MW*h")[0])
+        # 1.4 MW * 0.20 * 24 h = 6.72 MWh
+        assert total == pytest.approx(6.72)
+
+    def test_case9_defaults(self):
+        """Case 9 (small air-cooled): fraction 0.06, T_supply=28, T_return=20."""
+        plant_config = _pue_wue_plant_config()
+        prob = _build_pue_wue_perf(plant_config, _pue_wue_perf_config(cooling_configuration=9))
+        prob.run_model()
+
+        facility_power = prob.get_val("total_facility_power", units="MW")
+        assert prob.get_val("waste_heat_out", units="MW") == pytest.approx(facility_power * 0.06)
+        assert prob.get_val("waste_heat_supply_temp_C", units="degC")[0] == pytest.approx(28.0)
+
+    def test_user_overrides(self):
+        """User-supplied override fields take precedence over per-case defaults."""
+        plant_config = _pue_wue_plant_config()
+        prob = _build_pue_wue_perf(
+            plant_config,
+            _pue_wue_perf_config(
+                waste_heat_recoverable_fraction=0.33,
+                waste_heat_supply_temp_C=55.0,
+                waste_heat_return_temp_C=40.0,
+            ),
+        )
+        prob.run_model()
+
+        facility_power = prob.get_val("total_facility_power", units="MW")
+        assert prob.get_val("waste_heat_out", units="MW") == pytest.approx(facility_power * 0.33)
+        assert prob.get_val("waste_heat_supply_temp_C", units="degC")[0] == pytest.approx(55.0)
+        assert prob.get_val("waste_heat_return_temp_C", units="degC")[0] == pytest.approx(40.0)
+
+    def test_missing_config_raises(self):
+        """Without cooling_configuration or full overrides, setup should raise."""
+        plant_config = _pue_wue_plant_config()
+        with pytest.raises(ValueError, match="waste-heat"):
+            comp = DataCenterPUEWUEPerformanceModel(
+                plant_config=plant_config,
+                tech_config=_pue_wue_perf_config(cooling_configuration=None),
+            )
+            comp.setup()
+
+
+@pytest.mark.unit
+class TestDataCenterPUEWUECostCredit:
+    def _build_cost(self, plant_config, tech_config):
+        prob = om.Problem()
+        prob.model.add_subsystem(
+            "dc_cost",
+            DataCenterPUEWUECostModel(plant_config=plant_config, tech_config=tech_config),
+            promotes=["*"],
+        )
+        prob.setup()
+        return prob
+
+    def test_no_credit_when_price_zero(self):
+        plant_config = _pue_wue_plant_config()
+        prob = self._build_cost(plant_config, _pue_wue_cost_config())
+        prob.set_val("total_facility_power", np.full(24, 1.4), units="MW")
+        prob.set_val("water_consumed", np.zeros(24), units="galUS/h")
+        prob.set_val("waste_heat_out", np.full(24, 0.28), units="MW")
+        prob.run_model()
+
+        # capex = 10e6 * 1 = 10e6; fixed_om = 100e3
+        # electricity_cost = 1.4 MW * 24 h * 1000 kW/MW * 0.05 = 1680
+        opex_no_credit = float(prob.get_val("OpEx", units="USD/year")[0])
+        assert opex_no_credit == pytest.approx(100_000.0 + 1_680.0)
+
+    def test_waste_heat_credit_reduces_opex(self):
+        plant_config = _pue_wue_plant_config()
+        prob = self._build_cost(
+            plant_config,
+            _pue_wue_cost_config(waste_heat_sale_price_usd_per_mwh=10.0),
+        )
+        prob.set_val("total_facility_power", np.full(24, 1.4), units="MW")
+        prob.set_val("water_consumed", np.zeros(24), units="galUS/h")
+        prob.set_val("waste_heat_out", np.full(24, 0.28), units="MW")
+        prob.run_model()
+
+        # Waste-heat revenue = 10 * (0.28 * 24) = 67.2
+        opex = float(prob.get_val("OpEx", units="USD/year")[0])
+        assert opex == pytest.approx(100_000.0 + 1_680.0 - 67.2)

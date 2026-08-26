@@ -135,6 +135,10 @@ supported_models = _ModelRegistry(
         "NaturalGasCostModel": "converters.natural_gas:NaturalGasCostModel",
         "DataCenterPerformanceModel": "converters.data_center:DataCenterPerformanceModel",
         "DataCenterCostModel": "converters.data_center:DataCenterCostModel",
+        "DataCenterPUEWUEPerformanceModel": "converters.data_center:DataCenterPUEWUEPerformanceModel",
+        "DataCenterPUEWUECostModel": "converters.data_center:DataCenterPUEWUECostModel",
+        "HeatPumpPerformanceModel": "converters.heat.heat_pump:HeatPumpPerformanceModel",
+        "HeatPumpCostModel": "converters.heat.heat_pump:HeatPumpCostModel",
         # Transport
         "cable": "transporters:CablePerformanceModel",
         "pipe": "transporters:PipePerformanceModel",
@@ -165,6 +169,8 @@ supported_models = _ModelRegistry(
         "OptimizedDispatchStorageController": "control.control_strategies.storage:OptimizedDispatchStorageController",
         "GenericDemandComponent": "demand:GenericDemandComponent",
         "FlexibleDemandComponent": "demand:FlexibleDemandComponent",
+        "DistrictHeatingDemand": "demand.district_heating:DistrictHeatingDemand",
+        "DistrictHeatingDemandCostModel": "demand.district_heating:DistrictHeatingDemandCostModel",
         # Dispatch
         "PyomoDispatchGenericConverter": "control.control_rules.converters:PyomoDispatchGenericConverter",
         "PyomoRuleStorageBaseclass": "control.control_rules.storage:PyomoRuleStorageBaseclass",

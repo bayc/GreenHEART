@@ -2,8 +2,8 @@ import csv
 from pathlib import Path
 
 import numpy as np
-from attrs import field, define, validators
 import eeweather
+from attrs import field, define, validators
 
 from h2integrate.core.utilities import BaseConfig, merge_shared_inputs
 from h2integrate.core.validators import gt_zero, gte_zero
@@ -58,6 +58,7 @@ class DataCenterPerformanceModel(PerformanceModelBaseClass):
         unmet_electricity_demand (float array): Unmet electricity demand in MW.
         water_consumed (float array): Water consumed in galUS/h.
     """
+
     _time_step_bounds = (
         3600,
         3600,
@@ -128,7 +129,7 @@ class DataCenterPerformanceModel(PerformanceModelBaseClass):
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         """
         Compute the performance of the data center.
-        
+
         The computation determines the compute load output based on the input compute load demand,
         available electricity, and the data center's electrical efficiency and cooling load ratio.
         It also calculates any unmet electricity demand and water consumption.
@@ -223,6 +224,7 @@ class DataCenterCostModel(CostModelBaseClass):
     Args:
         CostModelBaseClass (_type_): _description_
     """
+
     _time_step_bounds = (
         3600,
         3600,
@@ -343,11 +345,18 @@ class DataCenterPUEWUEPerformanceConfig(BaseConfig):
     wue: float = field(validator=gte_zero, default=None)
     climate_zone: str = field(default=None)
     efficiency_level: str = field(default="efficient")
-    cooling_configuration: str = field(default=None)
+    cooling_configuration: int = field(default=None)
     optimize_for: str = field(default="pue")
     size_sqft: float = field(default=None)
 
-        # Mapping of cooling configuration integer to description
+    # Optional user overrides for waste-heat outputs. When any of these is None the
+    # value is looked up from `WASTE_HEAT_RECOVERY_DEFAULTS` using the resolved
+    # cooling configuration case.
+    waste_heat_recoverable_fraction: float = field(default=None)
+    waste_heat_supply_temp_C: float = field(default=None)
+    waste_heat_return_temp_C: float = field(default=None)
+
+    # Mapping of cooling configuration integer to description
     COOLING_CONFIGURATIONS = {
         1: "Large-scale DC; Airside economizer + adiabatic cooling + (water-cooled chiller)",
         2: "Large-scale DC; Waterside economizer + (water-cooled chiller)",
@@ -373,6 +382,40 @@ class DataCenterPUEWUEPerformanceConfig(BaseConfig):
     LARGE_SQFT_THRESHOLD = 20_000
     SMALL_SQFT_THRESHOLD = 1_000
 
+    # Default waste-heat recovery parameters per cooling configuration case.
+    #
+    # `recoverable_fraction` is the fraction of total facility power that can be
+    # recovered as usable thermal energy at the given supply temperature. Values
+    # are order-of-magnitude estimates informed by:
+    #   - Ebrahimi, Jones, Fleischer, "A review of data center cooling technology,
+    #     operating conditions and the corresponding low-grade waste heat
+    #     recovery opportunities", RSER 31 (2014) 622-638.
+    #   - Wahlroos, Parssinen, Rinne, Syri, Manner, "Utilizing data center waste
+    #     heat in district heating - Impacts on energy efficiency and prospects
+    #     for low-temperature DH networks", Energy 140 (2017) 1228-1238.
+    #   - Huang, Copertaro, Zhang, et al., "A review of data centers as prosumers
+    #     in district energy systems: Renewable energy integration and waste
+    #     heat reuse for district heating", Applied Energy 258 (2020) 114109.
+    #
+    # Water-cooled loops reject heat at higher temperatures with higher recovery
+    # fractions than air-cooled or direct-expansion configurations, and small
+    # facilities generally recover a smaller share due to distributed piping.
+    WASTE_HEAT_RECOVERY_DEFAULTS = {
+        # Large-scale DC (> 20,000 sqft)
+        1: {"recoverable_fraction": 0.10, "supply_temp_C": 30.0, "return_temp_C": 20.0},
+        2: {"recoverable_fraction": 0.15, "supply_temp_C": 35.0, "return_temp_C": 25.0},
+        # Midsize DC (1,000 - 20,000 sqft)
+        3: {"recoverable_fraction": 0.10, "supply_temp_C": 30.0, "return_temp_C": 20.0},
+        4: {"recoverable_fraction": 0.15, "supply_temp_C": 35.0, "return_temp_C": 25.0},
+        5: {"recoverable_fraction": 0.20, "supply_temp_C": 40.0, "return_temp_C": 30.0},
+        6: {"recoverable_fraction": 0.08, "supply_temp_C": 28.0, "return_temp_C": 20.0},
+        7: {"recoverable_fraction": 0.08, "supply_temp_C": 30.0, "return_temp_C": 20.0},
+        # Small DC (< 1,000 sqft)
+        8: {"recoverable_fraction": 0.12, "supply_temp_C": 35.0, "return_temp_C": 25.0},
+        9: {"recoverable_fraction": 0.06, "supply_temp_C": 28.0, "return_temp_C": 20.0},
+        10: {"recoverable_fraction": 0.05, "supply_temp_C": 30.0, "return_temp_C": 22.0},
+    }
+
     def __attrs_post_init__(self):
         # Check to see if the user has provided either PUE/WUE or climate zone (but not both)
         has_pue = self.pue is not None
@@ -395,9 +438,7 @@ class DataCenterPUEWUEPerformanceConfig(BaseConfig):
             )
 
         if has_pue and has_climate_zone:
-            raise ValueError(
-                "Provide either 'pue'/'wue' or 'climate_zone', not both."
-            )
+            raise ValueError("Provide either 'pue'/'wue' or 'climate_zone', not both.")
 
 
 class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
@@ -425,6 +466,7 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
         unmet_electricity_demand (float array): Unmet electricity demand in MW.
         unmet_water_demand (float array): Unmet water demand in galUS/h.
     """
+
     _time_step_bounds = (
         3600,
         3600,
@@ -523,6 +565,55 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
             desc="Unmet water demand",
         )
 
+        # ------------------------------------------------------------------
+        # Waste-heat recovery outputs
+        # ------------------------------------------------------------------
+        # Recoverable-waste-heat rate (a fraction of total facility power) and
+        # its supply/return temperatures. Downstream heat-consuming techs
+        # (heat pump, district heating) can wire to these via
+        # `technology_interconnections` in the plant config.
+        (
+            self._waste_heat_recoverable_fraction,
+            self._waste_heat_supply_temp_C,
+            self._waste_heat_return_temp_C,
+        ) = self._resolve_waste_heat_params()
+
+        self.add_output(
+            "waste_heat_out",
+            val=0.0,
+            shape=n_timesteps,
+            units="MW",
+            desc="Recoverable waste-heat rate available for downstream use",
+        )
+
+        self.add_output(
+            "waste_heat_supply_temp_C",
+            val=self._waste_heat_supply_temp_C,
+            units="degC",
+            desc="Waste-heat supply (hot-side) temperature",
+        )
+
+        self.add_output(
+            "waste_heat_return_temp_C",
+            val=self._waste_heat_return_temp_C,
+            units="degC",
+            desc="Waste-heat return (cold-side) temperature",
+        )
+
+        self.add_output(
+            "total_waste_heat_recovered",
+            val=0.0,
+            units="MW*h",
+            desc="Total recoverable waste heat over the simulation",
+        )
+
+        self.add_output(
+            "annual_waste_heat_recovered",
+            val=0.0,
+            units="(MW*h)/year",
+            desc="Annualized recoverable waste heat",
+        )
+
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         """
         Compute the total facility power and water consumption for the data center.
@@ -560,13 +651,13 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
         # MW*h = MWh, and 1 MWh = 1000 kWh
         it_workload_kwh = capped_it_workload * (self.dt / 3600) * 1000  # kWh per timestep
         water_demand_liters = it_workload_kwh * wue  # liters per timestep
-        
+
         # Convert liters to gallons (1 gallon = 3.785 liters)
         liters_per_gallon = 3.785
         water_demand_gal = water_demand_liters / liters_per_gallon  # galUS
 
         # Normalize water demand back to rate (galUS/h) by dividing by dt and multiplying by 3600
-        water_demand_rate = (water_demand_gal / (self.dt / 3600))  # galUS/h
+        water_demand_rate = water_demand_gal / (self.dt / 3600)  # galUS/h
 
         # Check water availability
         water_consumed = np.minimum(water_demand_rate, water_available)
@@ -578,6 +669,18 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
         outputs["unmet_electricity_demand"] = unmet_electricity
         outputs["unmet_water_demand"] = unmet_water
         outputs["compute_load_out"] = capped_it_workload
+
+        # Recoverable waste heat: a fraction of the total facility power leaves
+        # the site as usable heat at the resolved supply temperature. Both
+        # temperature outputs are constant across the simulation.
+        waste_heat = total_facility_power * self._waste_heat_recoverable_fraction
+        outputs["waste_heat_out"] = waste_heat
+        outputs["waste_heat_supply_temp_C"] = self._waste_heat_supply_temp_C
+        outputs["waste_heat_return_temp_C"] = self._waste_heat_return_temp_C
+        outputs["total_waste_heat_recovered"] = np.sum(waste_heat) * (self.dt / 3600)
+        outputs["annual_waste_heat_recovered"] = outputs["total_waste_heat_recovered"] * (
+            1 / self.fraction_of_year_simulated
+        )
 
         # Compute summary metrics using base-class standard output names
         outputs["total_compute_load_produced"] = np.sum(capped_it_workload) * (self.dt / 3600)
@@ -680,9 +783,7 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
                 f"efficiency must be 'efficient' or 'inefficient', got '{efficiency}'."
             )
         if optimize_for not in ("pue", "wue"):
-            raise ValueError(
-                f"optimize_for must be 'pue' or 'wue', got '{optimize_for}'."
-            )
+            raise ValueError(f"optimize_for must be 'pue' or 'wue', got '{optimize_for}'.")
         quantile = quantile_map[efficiency]
 
         data_file = Path(__file__).parent / "pue_wue_data" / "pue_wue_data.csv"
@@ -693,9 +794,7 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
             reader = csv.DictReader(f)
             for row in reader:
                 if row["Climate Zone"] == climate_zone and row["Quantile"] == quantile:
-                    matching_rows.append(
-                        (int(row["Case"]), float(row["PUE"]), float(row["WUE"]))
-                    )
+                    matching_rows.append((int(row["Case"]), float(row["PUE"]), float(row["WUE"])))
 
         if not matching_rows:
             raise ValueError(
@@ -712,7 +811,7 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
                 )
             for case_num, pue, wue in matching_rows:
                 if case_num == cooling_configuration:
-                    return (pue, wue)
+                    return (pue, wue, case_num)
             raise ValueError(
                 f"No PUE/WUE data found for climate zone '{climate_zone}', "
                 f"cooling_configuration {cooling_configuration} "
@@ -737,7 +836,63 @@ class DataCenterPUEWUEPerformanceModel(PerformanceModelBaseClass):
         # Auto-select: pick the row with lowest PUE or lowest WUE
         sort_index = 1 if optimize_for == "pue" else 2
         best = min(matching_rows, key=lambda r: r[sort_index])
-        return (best[1], best[2])
+        return (best[1], best[2], best[0])
+
+    def _resolve_waste_heat_params(self):
+        """Resolve waste-heat recovery parameters from the config.
+
+        Returns a tuple ``(recoverable_fraction, supply_temp_C, return_temp_C)``
+        using the per-case defaults in
+        ``DataCenterPUEWUEPerformanceConfig.WASTE_HEAT_RECOVERY_DEFAULTS``, with
+        per-parameter user overrides applied when supplied via the
+        ``waste_heat_recoverable_fraction``, ``waste_heat_supply_temp_C``, and
+        ``waste_heat_return_temp_C`` config fields.
+
+        Raises:
+            ValueError: If ``cooling_configuration`` is not set and any of the
+                three waste-heat parameters is missing an override value.
+        """
+        overrides = {
+            "recoverable_fraction": self.config.waste_heat_recoverable_fraction,
+            "supply_temp_C": self.config.waste_heat_supply_temp_C,
+            "return_temp_C": self.config.waste_heat_return_temp_C,
+        }
+
+        # If the user supplied all three overrides, no case lookup is needed.
+        if all(v is not None for v in overrides.values()):
+            return (
+                overrides["recoverable_fraction"],
+                overrides["supply_temp_C"],
+                overrides["return_temp_C"],
+            )
+
+        # Otherwise we need a cooling configuration to look up defaults.
+        if self.config.cooling_configuration is None:
+            missing = [k for k, v in overrides.items() if v is None]
+            raise ValueError(
+                "Cannot resolve waste-heat parameters: cooling_configuration is not set "
+                f"and the following overrides are missing: {missing}. Either set "
+                "'cooling_configuration' (1-10) to use per-case literature defaults, "
+                "or supply all three of 'waste_heat_recoverable_fraction', "
+                "'waste_heat_supply_temp_C', and 'waste_heat_return_temp_C'."
+            )
+
+        if self.config.cooling_configuration not in self.config.WASTE_HEAT_RECOVERY_DEFAULTS:
+            raise ValueError(
+                f"cooling_configuration must be an integer from 1 to 10, "
+                f"got '{self.config.cooling_configuration}'."
+            )
+
+        defaults = self.config.WASTE_HEAT_RECOVERY_DEFAULTS[self.config.cooling_configuration]
+        resolved = {
+            key: (overrides[key] if overrides[key] is not None else defaults[key])
+            for key in ("recoverable_fraction", "supply_temp_C", "return_temp_C")
+        }
+        return (
+            resolved["recoverable_fraction"],
+            resolved["supply_temp_C"],
+            resolved["return_temp_C"],
+        )
 
 
 @define(kw_only=True)
@@ -757,6 +912,10 @@ class DataCenterPUEWUECostConfig(CostModelBaseConfig):
     capex_per_mw: float | int = field(validator=gte_zero)
     fixed_opex_per_mw_per_year: float | int = field(validator=gte_zero)
     system_capacity_mw: float = field(validator=gt_zero)
+    # Optional sale price for recoverable waste heat delivered to downstream
+    # techs. When > 0, revenue = price * total_waste_heat_MWh is credited
+    # against OpEx.
+    waste_heat_sale_price_usd_per_mwh: float = field(default=0.0, validator=gte_zero)
 
 
 class DataCenterPUEWUECostModel(CostModelBaseClass):
@@ -777,6 +936,7 @@ class DataCenterPUEWUECostModel(CostModelBaseClass):
         CapEx: Total capital expenditure in USD
         OpEx: Total operating expenditure over project life in USD
     """
+
     _time_step_bounds = (
         3600,
         3600,
@@ -847,6 +1007,21 @@ class DataCenterPUEWUECostModel(CostModelBaseClass):
             desc="Fixed annual O&M per MW of IT capacity",
         )
 
+        self.add_input(
+            "waste_heat_out",
+            val=0.0,
+            shape=n_timesteps,
+            units="MW",
+            desc="Recoverable waste-heat rate from performance model",
+        )
+
+        self.add_input(
+            "waste_heat_sale_price_usd_per_mwh",
+            val=self.config.waste_heat_sale_price_usd_per_mwh,
+            units="USD/(MW*h)",
+            desc="Sale price for delivered waste heat; credited against OpEx",
+        )
+
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         """
         Compute capital and operating costs for the data center.
@@ -889,8 +1064,13 @@ class DataCenterPUEWUECostModel(CostModelBaseClass):
         # Calculate water costs
         water_cost = total_water_consumed_gal * water_rate
 
-        # Total variable operating expenses (energy and water)
-        variable_om = electricity_cost + water_cost
+        # Waste-heat sale revenue (credited against OpEx). Uses the recoverable
+        # heat profile written by the performance model.
+        waste_heat_MWh = inputs["waste_heat_out"].sum() * (dt / 3600)
+        waste_heat_revenue = inputs["waste_heat_sale_price_usd_per_mwh"] * waste_heat_MWh
+
+        # Total variable operating expenses (energy and water) net of waste-heat sales
+        variable_om = electricity_cost + water_cost - waste_heat_revenue
 
         # Total operating expenditure
         opex = fixed_om + variable_om
